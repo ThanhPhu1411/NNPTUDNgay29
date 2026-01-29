@@ -1,165 +1,227 @@
-let products = [];
-let filteredProducts = [];
+let allPosts = [];
+let allComments = [];
+let filteredPosts = [];
+let currentSort = null;
 
-fetch("db.json")
-    .then(res => res.json())
-    .then(data => {
-        products = data;
-        filteredProducts = [...products];
-        renderProducts(filteredProducts);
-    })
-    .catch(err => console.log(err));
+// Helper: fetch db.json and parse posts/comments
+async function loadData() {
+    try {
+        const response = await fetch('db.json');
+        let db = await response.json();
+        // Nếu db là mảng (trường hợp file db.json hiện tại)
+        if (Array.isArray(db)) db = db[0];
+        allPosts = db.posts || [];
+        allComments = db.comments || [];
+        filteredPosts = [...allPosts];
+        renderPosts(filteredPosts);
+    } catch (error) {
+        document.getElementById('products-container').innerHTML =
+            '<tr><td colspan="7" class="text-center text-danger">Failed to load posts. Please check that db.json exists.</td></tr>';
+    }
+}
 
-function renderProducts(products) {
-    const container = document.getElementById("productList");
-    container.innerHTML = ""; // Clear existing content
+// Helper: get max id (as number) from array, return string id
+function getNextId(arr) {
+    let maxId = arr.reduce((max, item) => {
+        let idNum = parseInt(item.id, 10);
+        return (!isNaN(idNum) && idNum > max) ? idNum : max;
+    }, 0);
+    return String(maxId + 1);
+}
 
-    products.forEach(p => {
-        const row = document.createElement("tr");
-        row.className = "product-row";
-        row.innerHTML = `
-            <td><img src="${p.images[0]}" style="width:100px;height:80px;object-fit:cover;"></td>
-            <td>${p.title}</td>
-            <td>${p.category.name}</td>
-            <td>${p.price}</td>
+// Render posts with soft-delete and comments
+function renderPosts(posts) {
+    const container = document.getElementById('products-container');
+    if (!posts || posts.length === 0) {
+        container.innerHTML = '<tr><td colspan="7" class="text-center text-danger">Không tìm thấy post nào.</td></tr>';
+        return;
+    }
+    container.innerHTML = posts.map((post, idx) => {
+        const isDeleted = post.isDeleted;
+        const postTitle = isDeleted ? `<s>${post.title}</s>` : post.title;
+        const postViews = isDeleted ? `<s>${post.views}</s>` : post.views;
+        const commentList = allComments
+            .filter(c => c.postId === post.id)
+            .map(c => `
+                <li>
+                    <span${c.isDeleted ? ' style="text-decoration:line-through;color:#888;"' : ''}>${c.text}</span>
+                    <button class="btn btn-sm btn-danger ms-2" onclick="deleteComment('${c.id}')">Xoá</button>
+                    <button class="btn btn-sm btn-secondary ms-1" onclick="editCommentPrompt('${c.id}')">Sửa</button>
+                </li>
+            `).join('');
+        return `
+        <tr${isDeleted ? ' class="table-secondary"' : ''}>
+            <td>${post.id}</td>
+            <td></td>
+            <td>${postTitle}</td>
+            <td></td>
+            <td></td>
             <td>
-                <button class="btn btn-warning btn-sm" onclick="updateProduct(${p.id})">Sửa</button>
-                <button class="btn btn-danger btn-sm" onclick="deleteProduct(${p.id})">Xóa</button>
+                <div>Lượt xem: ${postViews}</div>
+                <div>
+                    <button class="btn btn-sm btn-warning" onclick="softDeletePost('${post.id}')">${isDeleted ? 'Khôi phục' : 'Xoà mềm'}</button>
+                    <button class="btn btn-sm btn-danger" onclick="hardDeletePost('${post.id}')">Xoá cứng</button>
+                    <button class="btn btn-sm btn-primary" onclick="editPostPrompt('${post.id}')">Sửa</button>
+                </div>
+                <div class="mt-2">
+                    <b>Bình luận:</b>
+                    <ul>${commentList || '<li><i>Không có bình luận</i></li>'}</ul>
+                    <input type="text" id="comment-input-${post.id}" class="form-control form-control-sm d-inline-block" style="width:70%;" placeholder="Thêm bình luận...">
+                    <button class="btn btn-sm btn-success" onclick="addComment('${post.id}')">Thêm</button>
+                </div>
             </td>
+            <td></td>
+        </tr>
         `;
-        container.appendChild(row);
-    });
+    }).join('');
 }
 
-function onSearch() {
-    const query = document.getElementById("searchInput").value.toLowerCase();
-    filteredProducts = products.filter(p => p.title.toLowerCase().includes(query));
-    renderProducts(filteredProducts);
+// Search/filter posts by title
+function onChanged() {
+    const searchValue = document.getElementById('searchInput').value.trim().toLowerCase();
+    filteredPosts = allPosts.filter(p =>
+        p.title.toLowerCase().includes(searchValue)
+    );
+    applySort();
+    renderPosts(filteredPosts);
 }
 
-function sortByName() {
-    filteredProducts.sort((a, b) => a.title.localeCompare(b.title));
-    renderProducts(filteredProducts);
+// Sort posts
+function sortBy(type) {
+    currentSort = type;
+    applySort();
+    renderPosts(filteredPosts);
+}
+function applySort() {
+    if (!currentSort) return;
+    if (currentSort === 'nameAsc') {
+        filteredPosts.sort((a, b) => a.title.localeCompare(b.title));
+    } else if (currentSort === 'nameDesc') {
+        filteredPosts.sort((a, b) => b.title.localeCompare(a.title));
+    } else if (currentSort === 'priceDesc') {
+        filteredPosts.sort((a, b) => (b.views || 0) - (a.views || 0));
+    }
 }
 
-function sortByPrice() {
-    filteredProducts.sort((a, b) => a.price - b.price);
-    renderProducts(filteredProducts);
+// Soft delete/restore post
+function softDeletePost(id) {
+    const post = allPosts.find(p => p.id === id);
+    if (post) {
+        post.isDeleted = !post.isDeleted;
+        saveDb();
+        renderPosts(filteredPosts);
+    }
 }
 
-function filterByAscendingPrice() {
-    filteredProducts = products.filter(p => p.price >= 0).sort((a, b) => a.price - b.price);
-    renderProducts(filteredProducts);
+// Hard delete post (remove from array)
+function hardDeletePost(id) {
+    if (!confirm('Xoá cứng post này?')) return;
+    allPosts = allPosts.filter(p => p.id !== id);
+    filteredPosts = filteredPosts.filter(p => p.id !== id);
+    // Xoá luôn comments liên quan
+    allComments = allComments.filter(c => c.postId !== id);
+    saveDb();
+    renderPosts(filteredPosts);
 }
 
-function filterByDescendingPrice() {
-    filteredProducts = products.filter(p => p.price >= 0).sort((a, b) => b.price - a.price);
-    renderProducts(filteredProducts);
+// Add new post
+function addPostPrompt() {
+    const title = prompt('Nhập tiêu đề post:');
+    if (!title) return;
+    const views = parseInt(prompt('Nhập số lượt xem:', '0'), 10) || 0;
+    const newId = getNextId(allPosts);
+    const newPost = { id: newId, title, views };
+    allPosts.push(newPost);
+    filteredPosts = [...allPosts];
+    saveDb();
+    renderPosts(filteredPosts);
 }
 
-function filterByAscendingName() {
-    filteredProducts = products.slice().sort((a, b) => a.title.localeCompare(b.title));
-    renderProducts(filteredProducts);
+// Edit post
+function editPostPrompt(id) {
+    const post = allPosts.find(p => p.id === id);
+    if (!post) return;
+    const title = prompt('Sửa tiêu đề:', post.title);
+    if (title === null) return;
+    const views = parseInt(prompt('Sửa lượt xem:', post.views), 10) || 0;
+    post.title = title;
+    post.views = views;
+    saveDb();
+    renderPosts(filteredPosts);
 }
 
-function filterByDescendingName() {
-    filteredProducts = products.slice().sort((a, b) => b.title.localeCompare(a.title));
-    renderProducts(filteredProducts);
+// CRUD for comments
+function addComment(postId) {
+    const input = document.getElementById(`comment-input-${postId}`);
+    const text = input.value.trim();
+    if (!text) return;
+    const newId = getNextId(allComments);
+    allComments.push({ id: newId, text, postId });
+    input.value = '';
+    saveDb();
+    renderPosts(filteredPosts);
+}
+function deleteComment(id) {
+    const cmt = allComments.find(c => c.id === id);
+    if (cmt) {
+        cmt.isDeleted = !cmt.isDeleted;
+        saveDb();
+        renderPosts(filteredPosts);
+    }
+}
+function editCommentPrompt(id) {
+    const cmt = allComments.find(c => c.id === id);
+    if (!cmt) return;
+    const text = prompt('Sửa bình luận:', cmt.text);
+    if (text === null) return;
+    cmt.text = text;
+    saveDb();
+    renderPosts(filteredPosts);
 }
 
-function addProduct() {
-    const newProduct = {
-        id: Date.now(),
-        title: "Sản phẩm mới",
-        slug: "san-pham-moi",
-        price: 0,
-        description: "Mô tả sản phẩm mới",
-        category: { id: 1, name: "Clothes", slug: "clothes" },
-        images: ["https://placehold.co/600x400"],
-        creationAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString()
+// Save to db.json (simulate, for demo: update localStorage)
+function saveDb() {
+    // For demo only: save to localStorage (since fetch can't write db.json)
+    const db = {
+        posts: allPosts,
+        comments: allComments,
+        profile: { name: "typicode" }
     };
-    products.push(newProduct);
-    filteredProducts = [...products];
-    renderProducts(filteredProducts);
+    localStorage.setItem('db', JSON.stringify(db));
 }
 
-function createProduct() {
-    const title = prompt("Nhập tên sản phẩm:");
-    const price = parseFloat(prompt("Nhập giá sản phẩm:"));
-    const description = prompt("Nhập mô tả sản phẩm:");
-    const category = prompt("Nhập danh mục sản phẩm:");
-    const image = prompt("Nhập URL hình ảnh sản phẩm:");
-
-    if (title && !isNaN(price) && description && category && image) {
-        const newProduct = {
-            id: Date.now(),
-            title,
-            slug: title.toLowerCase().replace(/\s+/g, "-"),
-            price,
-            description,
-            category: { id: 1, name: category, slug: category.toLowerCase() },
-            images: [image],
-            creationAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString()
-        };
-        products.push(newProduct);
-        filteredProducts = [...products];
-        renderProducts(filteredProducts);
-    } else {
-        alert("Vui lòng nhập đầy đủ thông tin hợp lệ.");
+// Load from localStorage if exists (simulate)
+function loadFromLocalStorage() {
+    const dbStr = localStorage.getItem('db');
+    if (dbStr) {
+        try {
+            const db = JSON.parse(dbStr);
+            allPosts = db.posts || [];
+            allComments = db.comments || [];
+            filteredPosts = [...allPosts];
+        } catch {}
     }
 }
 
-function editProduct(id) {
-    const product = products.find(p => p.id === id);
-    if (product) {
-        const newTitle = prompt("Nhập tên sản phẩm mới:", product.title);
-        if (newTitle) {
-            product.title = newTitle;
-            product.updatedAt = new Date().toISOString();
-            filteredProducts = [...products];
-            renderProducts(filteredProducts);
-        }
-    }
-}
-
-function updateProduct(id) {
-    const product = products.find(p => p.id === id);
-    if (product) {
-        const title = prompt("Nhập tên sản phẩm mới:", product.title);
-        const price = parseFloat(prompt("Nhập giá sản phẩm mới:", product.price));
-        const description = prompt("Nhập mô tả sản phẩm mới:", product.description);
-        const category = prompt("Nhập danh mục sản phẩm mới:", product.category.name);
-        const image = prompt("Nhập URL hình ảnh sản phẩm mới:", product.images[0]);
-
-        if (title && !isNaN(price) && description && category && image) {
-            product.title = title;
-            product.price = price;
-            product.description = description;
-            product.category.name = category;
-            product.images[0] = image;
-            product.updatedAt = new Date().toISOString();
-            filteredProducts = [...products];
-            renderProducts(filteredProducts);
-        } else {
-            alert("Vui lòng nhập đầy đủ thông tin hợp lệ.");
-        }
-    }
-}
-
-function deleteProduct(id) {
-    if (confirm("Bạn có chắc chắn muốn xóa sản phẩm này?")) {
-        products = products.filter(p => p.id !== id);
-        filteredProducts = [...products];
-        renderProducts(filteredProducts);
-    }
-}
-
-document.addEventListener("mousemove", (e) => {
-    const tooltips = document.querySelectorAll(".description-tooltip");
-    tooltips.forEach(tooltip => {
-        tooltip.style.left = `${e.pageX + 10}px`;
-        tooltip.style.top = `${e.pageY + 10}px`;
-    });
+// On page load
+document.addEventListener('DOMContentLoaded', () => {
+    loadFromLocalStorage();
+    loadData();
+    // Add button for add post
+    const btn = document.createElement('button');
+    btn.className = 'btn btn-success mb-3';
+    btn.innerText = 'Thêm Post';
+    btn.onclick = addPostPrompt;
+    document.querySelector('.container').insertBefore(btn, document.querySelector('.table-responsive'));
 });
+
+// Expose functions
+window.onChanged = onChanged;
+window.sortBy = sortBy;
+window.softDeletePost = softDeletePost;
+window.hardDeletePost = hardDeletePost;
+window.addPostPrompt = addPostPrompt;
+window.editPostPrompt = editPostPrompt;
+window.addComment = addComment;
+window.deleteComment = deleteComment;
+window.editCommentPrompt = editCommentPrompt;
