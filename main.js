@@ -43,10 +43,16 @@ function renderPosts(posts) {
         const commentList = allComments
             .filter(c => c.postId === post.id)
             .map(c => `
-                <li>
+                <li class="d-flex justify-content-between align-items-center">
                     <span${c.isDeleted ? ' style="text-decoration:line-through;color:#888;"' : ''}>${c.text}</span>
-                    <button class="btn btn-sm btn-danger ms-2" onclick="deleteComment('${c.id}')">Xoá</button>
-                    <button class="btn btn-sm btn-secondary ms-1" onclick="editCommentPrompt('${c.id}')">Sửa</button>
+                    <div class="comment-actions">
+                        <button class="btn btn-sm btn-danger" onclick="deleteComment('${c.id}')">
+                            <i class="bi bi-trash-fill"></i>
+                        </button>
+                        <button class="btn btn-sm btn-secondary" onclick="editCommentPrompt('${c.id}')">
+                            <i class="bi bi-pencil-fill"></i>
+                        </button>
+                    </div>
                 </li>
             `).join('');
         return `
@@ -59,7 +65,7 @@ function renderPosts(posts) {
             <td>
                 <div>Lượt xem: ${postViews}</div>
                 <div>
-                    <button class="btn btn-sm btn-warning" onclick="softDeletePost('${post.id}')">${isDeleted ? 'Khôi phục' : 'Xoà mềm'}</button>
+                    <button class="btn btn-sm btn-warning" onclick="softDeletePost('${post.id}')">${isDeleted ? 'Khôi phục' : 'Xóa mềm'}</button>
                     <button class="btn btn-sm btn-danger" onclick="hardDeletePost('${post.id}')">Xoá cứng</button>
                     <button class="btn btn-sm btn-primary" onclick="editPostPrompt('${post.id}')">Sửa</button>
                 </div>
